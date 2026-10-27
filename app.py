@@ -27,7 +27,9 @@ def get_supabase_client():
 
 def student_login_email(student_id):
     cleaned = re.sub(r"[^A-Z0-9]", "", student_id.upper())
-    return f"{cleaned.lower()}@student-login.invalid"
+    # Use a syntactically valid reserved example domain for ID-based auth.
+    # These addresses are not real inboxes; keep email confirmation disabled.
+    return f"{cleaned.lower()}@example.com"
 
 def show_auth_gate():
     st.markdown("""
@@ -124,8 +126,9 @@ def show_auth_gate():
                         st.info(f"Your Student ID is **{generated_id}**. Save it now.")
                     else:
                         st.error("Account creation did not complete. Please try again.")
-                except Exception:
-                    st.error("Could not create this account. Please try again to generate a new Student ID.")
+                except Exception as exc:
+                    st.error(f"Registration failed: {exc}")
+                    st.caption("If the error mentions email confirmation, disable Confirm email in Supabase Authentication settings. If it mentions an invalid email or provider, share the exact error text without sharing your password or API key.")
 
     if st.session_state.get("new_student_id_to_show"):
         st.success("Account created. Save your Student ID; you will need it with your password.")
