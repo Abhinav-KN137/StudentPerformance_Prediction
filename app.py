@@ -1,31 +1,42 @@
-import io
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, ExtraTreesRegressor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, ExtraTreesRegressor, ExtraTreesClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score, f1_score, confusion_matrix
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, accuracy_score, f1_score, confusion_matrix, classification_report
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, LabelEncoder
+from sklearn.preprocessing import OneHotEncoder
 
 st.set_page_config(page_title="Student Success | Performance AI", page_icon="🎓", layout="wide")
 
 CUSTOM_CSS = """
 <style>
-.block-container {padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1400px;}
-.hero {padding: 1.5rem 1.7rem; border-radius: 18px; background: linear-gradient(120deg,#102a43,#176b87); color: white; margin-bottom: 1rem;}
-.hero h1 {color:white; margin:0; font-size:2.15rem;}
-.hero p {color:#d9edf4; margin:.45rem 0 0 0; font-size:1.03rem;}
-.small-muted {color:#64748b;font-size:.88rem;}
-div[data-testid="stMetric"] {background:linear-gradient(145deg,#ffffff,#f5f9fc); border:1px solid #dbe5ee; padding:16px; border-radius:16px; box-shadow:0 2px 8px rgba(15,42,67,.04);}
-div[data-testid="stTabs"] button {font-weight:600;}
-.result-card {padding:1.15rem 1.3rem; border:1px solid #cbdde8; border-radius:16px; background:linear-gradient(135deg,#f3f9fc,#ffffff); margin:.5rem 0 1rem 0;}
-.result-value {font-size:2rem; font-weight:750; color:#12344a; line-height:1.2;}
-.empty-card {padding:1.5rem; text-align:center; border:1px dashed #b8c9d6; border-radius:16px; background:#f8fbfd; color:#526579;}
-div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {border-radius:10px; font-weight:650;}
+:root { --ink:#142d4e; --muted:#64748b; --line:#e2e8f0; --surface:#ffffff; --soft:#f5f8fc; }
+.block-container {padding-top:1.35rem; padding-bottom:2.5rem; max-width:1380px;}
+[data-testid="stAppViewContainer"] {background:#f7f9fc;}
+[data-testid="stHeader"] {background:rgba(247,249,252,.88);}
+[data-testid="stSidebar"] {background:#f0f5fa; border-right:1px solid #e1e8f0;}
+[data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 {color:var(--ink);}
+.hero {padding:1.65rem 1.8rem; border-radius:22px; background:linear-gradient(115deg,#102a43 0%,#155e75 60%,#2b7a78 100%); color:white; margin-bottom:1rem; box-shadow:0 10px 28px rgba(16,42,67,.12);}
+.hero h1 {color:white; margin:0; font-size:2.15rem; letter-spacing:-.035em;}
+.hero p {color:#e0f2f7; margin:.5rem 0 0 0; font-size:1rem;}
+.eyebrow {color:#a9e3e7; font-size:.76rem; font-weight:750; letter-spacing:.13em; text-transform:uppercase; margin-bottom:.45rem;}
+div[data-testid="stMetric"] {background:var(--surface); border:1px solid var(--line); padding:15px 16px; border-radius:16px; box-shadow:0 3px 12px rgba(20,45,78,.035);}
+div[data-testid="stMetricLabel"] {color:#64748b;}
+div[data-testid="stTabs"] button {font-weight:650; padding-top:.75rem; padding-bottom:.75rem;}
+div[data-testid="stTabs"] button[aria-selected="true"] {color:#0f766e; border-bottom-color:#0f766e;}
+.result-card {padding:1.25rem 1.4rem; border:1px solid #c8e0e5; border-radius:18px; background:linear-gradient(135deg,#edf8f8,#ffffff); margin:.65rem 0 1rem 0; box-shadow:0 5px 16px rgba(15,118,110,.06);}
+.result-value {font-size:2.15rem; font-weight:780; color:#12344a; line-height:1.25; margin:.2rem 0;}
+.empty-card {padding:1.6rem; text-align:center; border:1px dashed #b8c9d6; border-radius:18px; background:#fff; color:#526579;}
+div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {border-radius:11px; font-weight:700; min-height:2.7rem;}
+[data-testid="stDataFrame"] {border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;}
+h1,h2,h3 {letter-spacing:-.02em; color:#18324f;}
+hr {border-color:#e2e8f0;}
+.small-muted {color:var(--muted); font-size:.88rem;}
+@media (max-width: 700px) {.hero {padding:1.2rem; border-radius:16px;} .hero h1 {font-size:1.7rem;}}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -101,28 +112,37 @@ def feature_names_and_importances(pipe, input_cols):
 
 st.markdown("""
 <div class="hero">
+  <div class="eyebrow">Student analytics · ML dashboard</div>
   <h1>🎓 Student Success</h1>
-  <p>Performance prediction, model insights, and practical academic support — in one dashboard.</p>
+  <p>Understand your data, train a prediction model, and explore student performance — step by step.</p>
 </div>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("⚙️ Project settings")
-    uploaded = st.file_uploader("Upload student dataset (CSV)", type=["csv"])
-    st.caption("No file? The app uses a clearly labelled synthetic demo dataset.")
+    st.markdown("## ⚙️ Workspace")
+    st.caption("Start with the sample data, or upload your own CSV.")
+    uploaded = st.file_uploader("Choose a student dataset", type=["csv"], help="Each row should represent one student or assessment.")
     st.divider()
-    st.subheader("Dataset setup")
-    st.caption("Choose a target column such as final_score, G3, grade, or result.")
-    st.caption("Avoid identifiers and columns that reveal the answer in advance.")
+    st.markdown("#### Quick guide")
+    st.markdown("**1 · Overview** — check your dataset")
+    st.markdown("**2 · Model Lab** — choose a target and train")
+    st.markdown("**3 · Predict** — enter details and get an estimate")
     st.divider()
-    st.caption("Privacy: data is processed by this app session. Do not upload sensitive student records to a public demo.")
+    st.caption("🔒 Privacy tip: avoid uploading names, IDs, or sensitive student records to a public app.")
 
 data, source_name = load_data(uploaded)
-st.caption(f"Dataset source: **{source_name}** · {len(data):,} rows · {len(data.columns)} columns")
+st.markdown(f"""
+<div style="display:flex;flex-wrap:wrap;gap:.55rem;align-items:center;margin:.4rem 0 1.1rem 0">
+<span style="background:#e6f4f1;color:#17685f;border-radius:999px;padding:.32rem .7rem;font-size:.82rem;font-weight:650">● Data loaded</span>
+<span style="color:#526579;font-size:.9rem"><b>{source_name}</b> &nbsp;·&nbsp; {len(data):,} rows &nbsp;·&nbsp; {len(data.columns)} columns</span>
+</div>
+""", unsafe_allow_html=True)
 
-tab_overview, tab_predict, tab_models, tab_data = st.tabs(["📊 Overview", "🔮 Predict", "🧠 Model lab", "🗂️ Data explorer"])
+tab_overview, tab_predict, tab_models, tab_data = st.tabs(["🏠 Overview", "✨ Make a prediction", "🧪 Train a model", "📁 Explore data"])
 
 with tab_overview:
+    st.subheader("Your dataset at a glance")
+    st.caption("A quick health check before you train a model.")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Student records", f"{len(data):,}")
     c2.metric("Input columns", max(0, len(data.columns)-1))
@@ -131,10 +151,11 @@ with tab_overview:
     c4.metric("Numeric columns", len(numeric_cols))
     left, right = st.columns([1.35, 1])
     with left:
-        st.subheader("Dataset preview")
+        st.subheader("A look at your data")
         st.dataframe(data.head(12), use_container_width=True, hide_index=True)
     with right:
-        st.subheader("Missing values by column")
+        st.subheader("Data completeness")
+        st.caption("Columns with the most blank cells")
         missing = data.isna().sum().sort_values(ascending=False).head(12).reset_index()
         missing.columns = ["Column", "Missing"]
         fig = px.bar(missing, x="Missing", y="Column", orientation="h", color="Missing",
@@ -142,15 +163,17 @@ with tab_overview:
         fig.update_layout(height=350, coloraxis_showscale=False, yaxis={"categoryorder":"total ascending"})
         st.plotly_chart(fig, use_container_width=True)
     if numeric_cols:
-        st.subheader("Explore a numeric variable")
+        st.subheader("Explore a score or other numeric field")
+        st.caption("Choose a column to see its distribution.")
         chosen = st.selectbox("Select column", numeric_cols, key="overview_numeric")
         fig = px.histogram(data, x=chosen, nbins=25, marginal="box", title=f"Distribution of {chosen}")
         fig.update_layout(height=360)
         st.plotly_chart(fig, use_container_width=True)
 
 with tab_predict:
-    st.subheader("Predict an individual student's outcome")
-    st.write("Choose the target column in **Model lab** first. The input form is generated from the remaining dataset columns.")
+    st.subheader("✨ Make a prediction")
+    st.write("Enter a student's details to estimate the selected outcome.")
+    st.caption("First train a model in **Train a model**. Your prediction is an estimate, not a guarantee.")
     target_default = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
     target_for_form = st.session_state.get("target_column", target_default)
     if target_for_form not in data.columns:
@@ -213,16 +236,17 @@ with tab_predict:
             st.dataframe(one, use_container_width=True, hide_index=True)
 
 with tab_models:
-    st.subheader("Train and evaluate a model")
-    st.write("Select a target. Numeric targets with many distinct values are treated as regression; otherwise classification.")
+    st.subheader("🧪 Train and evaluate")
+    st.write("Tell the model what you want to predict, choose the inputs, then train and review its results.")
+    st.caption("Tip: choose a final score or result column as the target, and exclude IDs or columns that reveal the answer.")
     suggested = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
     target = st.selectbox("Target column to predict", data.columns.tolist(), index=data.columns.tolist().index(suggested), key="target_select")
     st.session_state["target_column"] = target
     model_type = infer_task(data[target].dropna())
     task_choice = st.radio("Prediction task", ["Auto-detect", "Regression", "Classification"], horizontal=True, index=0)
     task = model_type if task_choice == "Auto-detect" else task_choice
-    model_name = st.selectbox("Model", ["Random Forest", "Extra Trees"])
-    excluded = st.multiselect("Exclude columns from model inputs (recommended for IDs or leakage)", [c for c in data.columns if c != target])
+    model_name = st.selectbox("Algorithm", ["Random Forest", "Extra Trees"], help="Both are tree-based models; compare their evaluation metrics.")
+    excluded = st.multiselect("Ignore columns (optional)", [c for c in data.columns if c != target], help="Exclude IDs, names, or columns that would leak the answer.")
     test_size = st.slider("Test set size (%)", 10, 50, 20, 5,
                           help="Share of rows held out for evaluation, not the model's accuracy. It cannot be 100% because the model needs training data.")
     st.caption("For a fair score, keep test data separate from model fitting. Classification uses accuracy/F1; regression uses MAE/RMSE/R².")
@@ -296,8 +320,8 @@ with tab_models:
                 st.info("Check for mixed target types, too few examples per class, or columns containing unusual values.")
 
 with tab_data:
-    st.subheader("Data explorer")
-    st.write("Inspect column types and summary statistics before training.")
+    st.subheader("📁 Explore your dataset")
+    st.write("Review column types, missing values, and summary statistics before training.")
     schema = pd.DataFrame({"Column": data.columns, "Type": [str(t) for t in data.dtypes], "Missing": [int(data[c].isna().sum()) for c in data.columns], "Unique values": [int(data[c].nunique(dropna=True)) for c in data.columns]})
     st.dataframe(schema, use_container_width=True, hide_index=True)
     with st.expander("Summary statistics"):
