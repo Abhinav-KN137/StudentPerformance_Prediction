@@ -215,15 +215,19 @@ def make_demo_data(n=120, seed=42):
     return demo
 
 SAMPLES = {
-    "Real student dataset (480 students)": "real",
-    "Synthetic demo (120 students)": "synthetic",
+    "Compact study-habits dataset (100 students, 8 columns)": "compact",
+    "Classroom engagement dataset (480 students, 17 columns)": "real",
+    "Generated synthetic demo (120 students)": "synthetic",
 }
 REAL_DATA_PATH = Path(__file__).with_name("data") / "student_academic_performance.csv"
+COMPACT_DATA_PATH = Path(__file__).with_name("data") / "student_performance_compact.csv"
 
 def load_sample(kind):
+    if kind == "compact" and COMPACT_DATA_PATH.exists():
+        return pd.read_csv(COMPACT_DATA_PATH), "Compact synthetic study-habits dataset (100 students, 8 columns)"
     if kind == "real" and REAL_DATA_PATH.exists():
-        return pd.read_csv(REAL_DATA_PATH), "Student academic performance dataset (480 students)"
-    return make_demo_data(), "Built-in synthetic demo dataset"
+        return pd.read_csv(REAL_DATA_PATH), "Classroom engagement dataset (480 students, 17 columns)"
+    return make_demo_data(), "Generated synthetic demo dataset (120 students)"
 
 _SENSITIVE_EXACT = {"gender", "sex", "race"}
 _SENSITIVE_CONTAINS = ("nationality", "placeofbirth", "birthplace", "ethnic", "religion", "caste", "disability")
@@ -286,52 +290,60 @@ def feature_names_and_importances(pipe, input_cols):
         return pd.DataFrame(columns=["Feature", "Importance"])
 
 def get_student_guidance(inputs, target_name="final_score"):
-    """Offer practical, non-judgmental suggestions based on available input fields."""
+    """Return actionable, feature-aware improvement ideas from the submitted student inputs."""
     tips = []
-    values = {str(k).lower(): v for k, v in inputs.items()}
+    values = {re.sub(r"[^a-z0-9]+", "_", str(k).lower()).strip("_"): v for k, v in inputs.items()}
 
-    def find_value(*fragments):
+    def get_number(*names):
         for name, value in values.items():
-            if any(fragment in name for fragment in fragments):
+            if any(token in name for token in names):
                 try:
                     number = float(value)
                     if np.isfinite(number):
                         return number
                 except (TypeError, ValueError):
-                    continue
+                    pass
         return None
 
-    study = find_value("study_hours", "study hour", "hours_studied")
-    attendance = find_value("attendance")
-    assignments = find_value("assignment_completion", "assignment", "homework")
-    sleep = find_value("sleep_hours", "sleep hour", "hours_sleep")
-    previous = find_value("previous_score", "previous grade", "prior_score", "g1", "past_score")
+    study = get_number("study_hours", "hours_studied", "study_time")
+    attendance = get_number("attendance")
+    assignments = get_number("assignment_completion", "assignment", "homework")
+    quizzes = get_number("practice_quiz", "quiz_practice", "quizzes_per_week", "practice_tests")
+    participation = get_number("class_participation", "participation_score", "raisedhands", "raised_hands")
+    resources = get_number("visited_resources", "visit_resources", "resources_visited")
+    discussion = get_number("discussion")
+    absences = get_number("absence")
+    sleep = get_number("sleep_hours", "hours_sleep")
+    previous = get_number("previous_score", "previous_grade", "prior_score", "g1", "past_score")
 
-    if study is not None and study < 2.5:
-        tips.append(("Build a steady study routine", f"Your entered study time is {study:g} hours/day. Try adding 20–30 focused minutes on most days, then review whether it helps."))
-    elif study is not None and study >= 2.5:
-        tips.append(("Keep studying consistently", "Your entered study time is a useful starting point. Short, focused sessions with practice questions and spaced revision can make study time more effective."))
-
+    # Suggestions are based on entered values, not on a promise that changing a value will cause a higher score.
+    if study is not None:
+        if study < 2:
+            tips.append(("Prioritise a regular study routine", f"You entered {study:g} study hours per day. Try a manageable 20–30 minute focused session on most days, using active recall and practice questions."))
+        elif study < 4:
+            tips.append(("Make study time more active", f"You entered {study:g} study hours per day. Use short sessions with practice questions, spaced revision, and a quick review of mistakes rather than only rereading notes."))
     if attendance is not None and attendance < 85:
-        tips.append(("Improve attendance where possible", f"Attendance is {attendance:g}%. Aim to attend regularly, catch up on missed notes, and ask a teacher about topics you missed."))
-    elif attendance is not None:
-        tips.append(("Protect your attendance", f"Attendance is {attendance:g}%. Keep showing up and use class time to ask questions and clarify difficult topics."))
-
+        tips.append(("Improve attendance or catch-up planning", f"Attendance is {attendance:g}%. When possible, attend regularly and make a plan to catch up on notes or topics from missed classes."))
     if assignments is not None and assignments < 80:
-        tips.append(("Complete assignments earlier", f"Assignment completion is {assignments:g}%. Break work into smaller tasks, set mini-deadlines, and ask for help before the due date."))
-    elif assignments is not None:
-        tips.append(("Maintain assignment completion", "Keep submitting work on time and use teacher feedback to identify recurring mistakes."))
-
+        tips.append(("Finish more assignments on time", f"Assignment completion is {assignments:g}%. Break unfinished work into smaller tasks, set mini-deadlines, and ask for help before the due date."))
+    if quizzes is not None and quizzes < 3:
+        tips.append(("Add low-stakes quiz practice", f"You entered {quizzes:g} practice quizzes per week. Try one or two short practice quizzes and review every incorrect answer to find knowledge gaps."))
+    if participation is not None and participation < 6:
+        tips.append(("Take one small step toward class participation", f"Your participation value is {participation:g}. Consider preparing one question before class, answering once, or discussing a difficult topic with a teacher."))
+    if resources is not None and resources < 30:
+        tips.append(("Use learning resources more regularly", f"The resource-visit value is {resources:g}. If relevant to your course, schedule time to use the recommended learning materials and take notes on what remains unclear."))
+    if discussion is not None and discussion < 30:
+        tips.append(("Engage with topic discussions", f"The discussion value is {discussion:g}. Try contributing a question or explanation during class discussion to check your understanding."))
+    if absences is not None and absences > 7:
+        tips.append(("Make a catch-up plan for missed classes", f"The absence-related value is {absences:g}. Identify missed topics and arrange notes or support; the dataset's units may be category-coded, so verify the column meaning before interpreting this number."))
     if sleep is not None and sleep < 7:
-        tips.append(("Support learning with enough sleep", f"Your entered sleep is {sleep:g} hours/night. If practical, work toward a regular sleep schedule and sufficient rest for your age and needs."))
+        tips.append(("Protect a consistent sleep schedule", f"You entered {sleep:g} hours of sleep. If practical for your age and circumstances, aim for a regular sleep routine and sufficient rest."))
     if previous is not None and previous < 60:
-        tips.append(("Review earlier learning gaps", f"The previous score is {previous:g}. Identify the 2–3 topics that cost the most marks, practise them in small sets, and ask for feedback."))
+        tips.append(("Target earlier learning gaps", f"Your previous score is {previous:g}. Identify two or three topics where marks were lost, practise them in short sets, and ask for feedback on mistakes."))
 
     if not tips:
-        tips.append(("Choose one improvement to test", "Review the model's most influential features in Train a model, then choose one realistic habit to improve and track over a few weeks."))
-
-    return tips
-
+        tips.append(("Choose a measurable next step", "No clearly low value was detected in the available fields. Review the model's feature-importance chart, choose one realistic learning habit to test, and track it for a few weeks."))
+    return tips[:5]
 
 st.markdown("""
 <div class="hero">
@@ -364,10 +376,12 @@ with st.sidebar:
     st.markdown("## ⚙️ Workspace")
     sample_label = st.radio("Built-in sample dataset", list(SAMPLES), help="Used when no CSV is uploaded.")
     sample_kind = SAMPLES[sample_label]
-    if sample_kind == "real":
-        st.caption("480 real student records: behaviour in class (raised hands, resources visited, discussions, absences) and a Low / Medium / High performance class.")
+    if sample_kind == "compact":
+        st.caption("100 synthetic students and 8 columns: study time, attendance, assignment completion, weekly quiz practice, class participation, previous score, sleep, and final score. Small and easy to explain; not real student evidence.")
+    elif sample_kind == "real":
+        st.caption("480 classroom-engagement records with 17 columns. This dataset is useful for classification, but includes demographic/context fields that should be reviewed and excluded where appropriate.")
     else:
-        st.caption("120 synthetic students: study hours, attendance, assignment completion, previous score, sleep and final score. Made from a formula, so scores on it prove nothing.")
+        st.caption("120 generated synthetic students with a small set of study-habit features. Formula-generated scores are only for demonstration, not evidence of real-world accuracy.")
     uploaded = st.file_uploader("Choose a student dataset", type=["csv"], help="Each row should represent one student or assessment.")
     st.divider()
     st.markdown("#### Quick guide")
@@ -617,7 +631,7 @@ with tab_predict:
             st.dataframe(one, width="stretch", hide_index=True)
 
             st.subheader("📈 What could this student improve?")
-            st.caption("Suggestions are based on the values entered above. Choose a small, realistic action and review progress over time.")
+            st.caption("These suggestions look for specific opportunities in the entered values. If no low value is detected, the app suggests a measurable habit to test. They are not a diagnosis or a guarantee of a higher score.")
             guidance = get_student_guidance(input_values, target_for_form)
             for title, detail in guidance:
                 st.markdown(f"**{title}**")
