@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import secrets
+import re
+from supabase import create_client
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, ExtraTreesRegressor, ExtraTreesClassifier
 from sklearn.impute import SimpleImputer
@@ -11,6 +14,128 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 st.set_page_config(page_title="Student Success | Performance AI", page_icon="🎓", layout="wide")
+
+def get_supabase_client():
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_ANON_KEY"]
+        if not url or not key:
+            return None
+        return create_client(url, key)
+    except Exception:
+        return None
+
+def student_login_email(student_id):
+    cleaned = re.sub(r"[^A-Z0-9]", "", student_id.upper())
+    return f"{cleaned.lower()}@student-login.invalid"
+
+def show_auth_gate():
+    st.markdown("""
+    <div class="hero">
+      <div class="eyebrow">Student analytics · secure sign in</div>
+      <h1>🎓 Student Success</h1>
+      <p>Create your student account or sign in with your unique Student ID.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    client = get_supabase_client()
+    if client is None:
+        st.error("Student login is not configured yet. The app owner must connect Supabase and add SUPABASE_URL and SUPABASE_ANON_KEY to Streamlit Secrets.")
+        with st.expander("Setup instructions for the app owner"):
+            st.markdown("""
+            1. Create a project at [Supabase](https://supabase.com/).
+            2. In **Project Settings → API**, copy the Project URL and the **anon/public** key.
+            3. In Streamlit Cloud, open this app's **Settings → Secrets** and add:
+            
+            ```toml
+            SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+            SUPABASE_ANON_KEY = "YOUR-SUPABASE-ANON-KEY"
+            ```
+            
+            4. In Supabase Authentication settings, disable email confirmation for this Student-ID-only prototype. The login uses a generated internal address, so password recovery by email is not available.
+            5. Restart/redeploy the app.
+            
+            Never put a Supabase service-role key in this app or expose it in code.
+            """)
+        st.stop()
+
+    login_tab, register_tab = st.tabs(["🔐 Student login", "📝 Create account"])
+    with login_tab:
+        st.subheader("Welcome back")
+        with st.form("student_login_form"):
+            student_id = st.text_input("Unique Student ID", placeholder="e.g. STU-A1B2C3D4")
+            password = st.text_input("Password", type="password")
+            login_clicked = st.form_submit_button("Log in", type="primary", use_container_width=True)
+        if login_clicked:
+            normalized_id = student_id.strip().upper()
+            if not re.fullmatch(r"STU-[A-F0-9]{8}", normalized_id):
+                st.error("Enter a valid Student ID in the format STU-XXXXXXXX.")
+            elif not password:
+                st.error("Enter your password.")
+            else:
+                try:
+                    result = client.auth.sign_in_with_password({"email": student_login_email(normalized_id), "password": password})
+                    if result.user:
+                        st.session_state["auth_user"] = result.user
+                        st.session_state["student_prediction_history"] = []
+                        st.rerun()
+                    else:
+                        st.error("Login failed. Check your Student ID and password.")
+                except Exception:
+                    st.error("Login failed. Check your Student ID and password.")
+    with register_tab:
+        st.subheader("Create your student account")
+        st.write("A unique Student ID is generated after registration. Save it somewhere safe.")
+        with st.form("student_register_form"):
+            full_name = st.text_input("Full name / display name", max_chars=60)
+            course = st.text_input("Class / course (optional)", max_chars=80)
+            goal = st.text_input("Learning goal (optional)", max_chars=160)
+            new_password = st.text_input("Create password", type="password", help="Use at least 8 characters.")
+            confirm_password = st.text_input("Confirm password", type="password")
+            register_clicked = st.form_submit_button("Create account", type="primary", use_container_width=True)
+        if register_clicked:
+            if not full_name.strip():
+                st.error("Please enter your name.")
+            elif len(new_password) < 8:
+                st.error("Choose a password with at least 8 characters.")
+            elif new_password != confirm_password:
+                st.error("The passwords do not match.")
+            else:
+                generated_id = "STU-" + secrets.token_hex(4).upper()
+                try:
+                    result = client.auth.sign_up({
+                        "email": student_login_email(generated_id),
+                        "password": new_password,
+                        "options": {"data": {"student_id": generated_id, "full_name": full_name.strip(), "course": course.strip(), "goal": goal.strip()}}
+                    })
+                    if result.user and result.session:
+                        st.session_state["auth_user"] = result.user
+                        st.session_state["student_prediction_history"] = []
+                        st.session_state["new_student_id_to_show"] = generated_id
+                        st.rerun()
+                    elif result.user:
+                        st.warning("Account created, but no session was started. For this prototype, disable email confirmation in Supabase, then sign in.")
+                        st.info(f"Your Student ID is **{generated_id}**. Save it now.")
+                    else:
+                        st.error("Account creation did not complete. Please try again.")
+                except Exception:
+                    st.error("Could not create this account. Please try again to generate a new Student ID.")
+
+    if st.session_state.get("new_student_id_to_show"):
+        st.success("Account created. Save your Student ID; you will need it with your password.")
+        st.code(st.session_state["new_student_id_to_show"])
+        st.warning("Copy this ID somewhere safe.")
+
+if "auth_user" not in st.session_state:
+    st.session_state["auth_user"] = None
+
+if st.session_state["auth_user"] is None:
+    show_auth_gate()
+    st.stop()
+
+auth_user = st.session_state["auth_user"]
+auth_metadata = getattr(auth_user, "user_metadata", None) or {}
+authenticated_student_id = auth_metadata.get("student_id", "Student")
+authenticated_student_name = auth_metadata.get("full_name", "Student")
 
 CUSTOM_CSS = """
 <style>
@@ -183,6 +308,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 with st.sidebar:
+    st.markdown("## 👤 Student account")
+    st.write(f"**{authenticated_student_name}**")
+    st.caption(f"Student ID: {authenticated_student_id}")
+    if st.button("Log out", key="student_logout", use_container_width=True):
+        try:
+            auth_client = get_supabase_client()
+            if auth_client is not None:
+                auth_client.auth.sign_out()
+        except Exception:
+            pass
+        for key in ["auth_user", "student_prediction_history", "new_student_id_to_show"]:
+            st.session_state.pop(key, None)
+        st.session_state["auth_user"] = None
+        st.rerun()
+    st.divider()
     st.markdown("## ⚙️ Workspace")
     st.caption("Start with a compact 120-student sample, or upload your own CSV.")
     st.caption("Sample fields: study hours, attendance, assignment completion, previous score, sleep, and final score.")
@@ -203,81 +343,32 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab_profile, tab_overview, tab_predict, tab_models, tab_data = st.tabs(["👤 Student profile", "🏠 Overview", "✨ Make a prediction", "🧪 Train a model", "📁 Explore data"])
+tab_profile, tab_overview, tab_predict, tab_models, tab_data = st.tabs(["👤 My profile", "🏠 Overview", "✨ Make a prediction", "🧪 Train a model", "📁 Explore data"])
 
 with tab_profile:
-    st.subheader("👤 Create your student profile")
-    st.write("Each student can create a profile in their own browser session, then use the prediction tools and review their prediction history.")
-    st.info("**Demo version:** profiles and prediction history are kept in this active Streamlit session only. They are not shared with other sessions, but they will be cleared if the session resets or the app restarts. This version does not use passwords or permanently store personal data.")
-    if "student_profile" not in st.session_state:
-        st.session_state["student_profile"] = None
+    st.subheader("👤 My student profile")
+    st.markdown("### " + authenticated_student_name)
+    st.write("**Unique Student ID**")
+    st.code(authenticated_student_id)
+    st.caption("Keep your Student ID private. You need it and your password to sign in again.")
+    if auth_metadata.get("course"):
+        st.write("**Class / course:** " + auth_metadata["course"])
+    if auth_metadata.get("goal"):
+        st.write("**Learning goal:** " + auth_metadata["goal"])
+    st.info("Supabase Authentication manages your password; the app does not store it as plain text. This prototype does not yet support password recovery by email.")
+    st.subheader("My prediction history")
     if "student_prediction_history" not in st.session_state:
         st.session_state["student_prediction_history"] = []
-
-    if st.session_state["student_profile"] is None:
-        with st.form("create_student_profile"):
-            profile_name = st.text_input("Your name or display name", max_chars=60, placeholder="e.g. Student 01")
-            profile_class = st.text_input("Class / course (optional)", max_chars=80, placeholder="e.g. B.Tech CSE, Semester 3")
-            profile_goal = st.text_input("Learning goal (optional)", max_chars=160, placeholder="e.g. Improve consistency in assignments")
-            profile_submitted = st.form_submit_button("Create my profile", type="primary", use_container_width=True)
-        if profile_submitted:
-            if not profile_name.strip():
-                st.error("Please enter a display name to create your profile.")
-            else:
-                st.session_state["student_profile"] = {
-                    "name": profile_name.strip(),
-                    "course": profile_class.strip(),
-                    "goal": profile_goal.strip()
-                }
-                st.session_state["student_prediction_history"] = []
-                st.success(f"Profile created for {profile_name.strip()}.")
-                st.rerun()
+    history = st.session_state["student_prediction_history"]
+    if history:
+        st.dataframe(pd.DataFrame(history).iloc[::-1], use_container_width=True, hide_index=True)
+        history_csv = pd.DataFrame(history).to_csv(index=False).encode("utf-8")
+        st.download_button("Download my prediction history", history_csv, file_name="my_prediction_history.csv", mime="text/csv")
     else:
-        profile = st.session_state["student_profile"]
-        st.markdown("### Welcome, " + profile["name"] + "!")
-        p1, p2 = st.columns(2)
-        p1.metric("Saved predictions", len(st.session_state["student_prediction_history"]))
-        p2.metric("Profile status", "Active")
-        if profile.get("course"):
-            st.write("**Class / course:** " + profile["course"])
-        if profile.get("goal"):
-            st.write("**Learning goal:** " + profile["goal"])
-        if st.button("Edit profile", key="edit_student_profile"):
-            st.session_state["edit_student_profile"] = True
-        if st.session_state.get("edit_student_profile", False):
-            with st.form("update_student_profile"):
-                updated_name = st.text_input("Display name", value=profile["name"], max_chars=60)
-                updated_course = st.text_input("Class / course", value=profile.get("course", ""), max_chars=80)
-                updated_goal = st.text_input("Learning goal", value=profile.get("goal", ""), max_chars=160)
-                save_profile = st.form_submit_button("Save changes", type="primary")
-            if save_profile:
-                if not updated_name.strip():
-                    st.error("Display name cannot be blank.")
-                else:
-                    st.session_state["student_profile"] = {
-                        "name": updated_name.strip(),
-                        "course": updated_course.strip(),
-                        "goal": updated_goal.strip()
-                    }
-                    st.session_state["edit_student_profile"] = False
-                    st.rerun()
-        st.divider()
-        st.subheader("My prediction history")
-        history = st.session_state["student_prediction_history"]
-        if history:
-            st.dataframe(pd.DataFrame(history).iloc[::-1], use_container_width=True, hide_index=True)
-            history_csv = pd.DataFrame(history).to_csv(index=False).encode("utf-8")
-            st.download_button("Download my prediction history", history_csv, file_name="my_prediction_history.csv", mime="text/csv")
-        else:
-            st.caption("No predictions saved yet. Go to Make a prediction after training a model.")
-        if st.button("Clear prediction history", key="clear_prediction_history"):
-            st.session_state["student_prediction_history"] = []
-            st.rerun()
-        if st.button("Remove this profile from this session", key="remove_student_profile"):
-            st.session_state["student_profile"] = None
-            st.session_state["student_prediction_history"] = []
-            st.session_state["edit_student_profile"] = False
-            st.rerun()
+        st.caption("No predictions saved in this browser session yet. History currently resets when the session ends.")
+    if st.button("Clear prediction history", key="clear_prediction_history"):
+        st.session_state["student_prediction_history"] = []
+        st.rerun()
 
 with tab_overview:
     st.subheader("Your dataset at a glance")
@@ -397,9 +488,9 @@ with tab_predict:
                 st.write(detail)
             st.caption("These suggestions are general educational guidance. The model identifies patterns in data; it cannot prove that any single habit causes a particular score.")
             if st.session_state.get("student_profile"):
-                profile_name = st.session_state["student_profile"]["name"]
                 history_item = {
-                    "Student": profile_name,
+                    "Student ID": authenticated_student_id,
+                    "Student": authenticated_student_name,
                     "Target": target_for_form,
                     "Predicted outcome": str(round(float(prediction), 2)) if task == "Regression" else str(prediction),
                     "Algorithm": st.session_state.get(f"model_name_{target_for_form}", "Unknown"),
