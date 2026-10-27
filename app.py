@@ -43,25 +43,40 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 px.defaults.template = "plotly_dark"
 
 @st.cache_data
-def make_demo_data(n=700, seed=42):
+def make_demo_data(n=120, seed=42):
+    """Create a compact, easy-to-understand synthetic student dataset."""
     rng = np.random.default_rng(seed)
-    study = rng.integers(1, 6, n)
-    attendance = rng.integers(45, 101, n)
-    previous = np.clip(rng.normal(65, 16, n), 15, 100).round(0)
-    assignments = rng.integers(30, 101, n)
-    sleep = np.clip(rng.normal(7, 1.3, n), 3, 10).round(1)
-    support = rng.choice(["Low", "Medium", "High"], n, p=[.25, .5, .25])
-    activities = rng.choice(["Yes", "No"], n)
-    support_effect = pd.Series(support).map({"Low": -5, "Medium": 0, "High": 4}).to_numpy()
-    activity_effect = np.where(activities == "Yes", 1.5, 0)
+    study = rng.uniform(0.5, 5.5, n).round(1)
+    attendance = rng.integers(50, 101, n)
+    assignments = rng.integers(35, 101, n)
+    previous = np.clip(rng.normal(65, 15, n), 20, 100).round(0)
+    sleep = np.clip(rng.normal(7, 1.1, n), 4, 10).round(1)
+
+    # Keep the score related to study habits, while adding natural variation.
     noise = rng.normal(0, 7, n)
-    score = np.clip(18 + study*5 + attendance*.18 + previous*.22 + assignments*.08 + sleep*.8 + support_effect + activity_effect + noise, 0, 100).round(1)
-    return pd.DataFrame({
-        "study_hours_per_day": study, "attendance_percent": attendance,
-        "previous_score": previous, "assignment_completion": assignments,
-        "sleep_hours": sleep, "family_support": support,
-        "extracurricular_activities": activities, "final_score": score
+    score = np.clip(
+        8 + study * 4.2 + attendance * 0.20 + assignments * 0.12
+        + previous * 0.20 + sleep * 0.65 + noise,
+        0, 100
+    ).round(1)
+
+    demo = pd.DataFrame({
+        "study_hours_per_day": study,
+        "attendance_percent": attendance,
+        "assignment_completion_percent": assignments,
+        "previous_score": previous,
+        "sleep_hours": sleep,
+        "final_score": score
     })
+
+    # Add a few missing input values so the dashboard can demonstrate how
+    # incomplete data is detected and handled. Never blank out the target.
+    for col in ["study_hours_per_day", "attendance_percent",
+                "assignment_completion_percent", "previous_score", "sleep_hours"]:
+        missing_count = max(1, int(n * 0.025))
+        missing_rows = rng.choice(n, size=missing_count, replace=False)
+        demo.loc[missing_rows, col] = np.nan
+    return demo
 
 def load_data(uploaded):
     if uploaded is None:
@@ -111,6 +126,54 @@ def feature_names_and_importances(pipe, input_cols):
     except Exception:
         return pd.DataFrame(columns=["Feature", "Importance"])
 
+def get_student_guidance(inputs, target_name="final_score"):
+    """Offer practical, non-judgmental suggestions based on available input fields."""
+    tips = []
+    values = {str(k).lower(): v for k, v in inputs.items()}
+
+    def find_value(*fragments):
+        for name, value in values.items():
+            if any(fragment in name for fragment in fragments):
+                try:
+                    number = float(value)
+                    if np.isfinite(number):
+                        return number
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    study = find_value("study_hours", "study hour", "hours_studied")
+    attendance = find_value("attendance")
+    assignments = find_value("assignment_completion", "assignment", "homework")
+    sleep = find_value("sleep_hours", "sleep hour", "hours_sleep")
+    previous = find_value("previous_score", "previous grade", "prior_score", "g1", "past_score")
+
+    if study is not None and study < 2.5:
+        tips.append(("Build a steady study routine", f"Your entered study time is {study:g} hours/day. Try adding 20–30 focused minutes on most days, then review whether it helps."))
+    elif study is not None and study >= 2.5:
+        tips.append(("Keep studying consistently", "Your entered study time is a useful starting point. Short, focused sessions with practice questions and spaced revision can make study time more effective."))
+
+    if attendance is not None and attendance < 85:
+        tips.append(("Improve attendance where possible", f"Attendance is {attendance:g}%. Aim to attend regularly, catch up on missed notes, and ask a teacher about topics you missed."))
+    elif attendance is not None:
+        tips.append(("Protect your attendance", f"Attendance is {attendance:g}%. Keep showing up and use class time to ask questions and clarify difficult topics."))
+
+    if assignments is not None and assignments < 80:
+        tips.append(("Complete assignments earlier", f"Assignment completion is {assignments:g}%. Break work into smaller tasks, set mini-deadlines, and ask for help before the due date."))
+    elif assignments is not None:
+        tips.append(("Maintain assignment completion", "Keep submitting work on time and use teacher feedback to identify recurring mistakes."))
+
+    if sleep is not None and sleep < 7:
+        tips.append(("Support learning with enough sleep", f"Your entered sleep is {sleep:g} hours/night. If practical, work toward a regular sleep schedule and sufficient rest for your age and needs."))
+    if previous is not None and previous < 60:
+        tips.append(("Review earlier learning gaps", f"The previous score is {previous:g}. Identify the 2–3 topics that cost the most marks, practise them in small sets, and ask for feedback."))
+
+    if not tips:
+        tips.append(("Choose one improvement to test", "Review the model's most influential features in Train a model, then choose one realistic habit to improve and track over a few weeks."))
+
+    return tips
+
+
 st.markdown("""
 <div class="hero">
   <div class="eyebrow">Student analytics · ML dashboard</div>
@@ -121,7 +184,8 @@ st.markdown("""
 
 with st.sidebar:
     st.markdown("## ⚙️ Workspace")
-    st.caption("Start with the sample data, or upload your own CSV.")
+    st.caption("Start with a compact 120-student sample, or upload your own CSV.")
+    st.caption("Sample fields: study hours, attendance, assignment completion, previous score, sleep, and final score.")
     uploaded = st.file_uploader("Choose a student dataset", type=["csv"], help="Each row should represent one student or assessment.")
     st.divider()
     st.markdown("#### Quick guide")
@@ -143,7 +207,7 @@ tab_overview, tab_predict, tab_models, tab_data = st.tabs(["🏠 Overview", "✨
 
 with tab_overview:
     st.subheader("Your dataset at a glance")
-    st.caption("A quick health check before you train a model.")
+    st.caption("A quick health check before you train a model. The built-in sample has 120 synthetic student records and 6 easy-to-read columns.")
     total_missing = int(data.isna().sum().sum())
     rows_with_missing = int(data.isna().any(axis=1).sum())
     columns_with_missing = int(data.isna().any(axis=0).sum())
@@ -155,6 +219,15 @@ with tab_overview:
     c5.metric("Columns with missing data", f"{columns_with_missing:,}", help="Columns containing at least one missing value.")
     numeric_cols = data.select_dtypes(include="number").columns.tolist()
     st.caption(f"Dataset health: {len(data):,} rows × {len(data.columns):,} columns · {len(numeric_cols)} numeric · {max(0, len(data.columns) - len(numeric_cols))} non-numeric")
+    with st.expander("What do missing cells mean, and why should I care?"):
+        st.markdown("""
+        **A missing cell is a blank value** in one row and one column—for example, a student has no attendance value recorded.
+
+        - **Why count them?** Many missing values can make summaries misleading or reduce the number of usable training examples. The count helps you find data-entry or collection gaps.
+        - **What does this app do?** For input features, it fills missing numeric values with that column's median and missing text/category values with the most common value. Rows with no target/outcome value are excluded from training because the model has nothing correct to learn from.
+        - **Does a missing cell mean a student did something wrong?** No. It means the information was not recorded or is unavailable. Do not treat missing information as poor performance.
+        - **What should I do?** Check the column names and source data, fill values from a reliable source when possible, or keep them blank if unknown. Never invent scores just to make the count zero.
+        """)
     left, right = st.columns([1.35, 1])
     with left:
         st.subheader("A look at your data")
@@ -180,6 +253,7 @@ with tab_predict:
     st.subheader("✨ Make a prediction")
     st.write("Enter a student's details to estimate the selected outcome.")
     st.caption("First train a model in **Train a model**. Your prediction is an estimate, not a guarantee.")
+    st.info("**How to use this section:** enter realistic student details, select **Predict performance**, then read the improvement suggestions below the result. Suggestions are general study ideas—not promises that a score will rise.")
     target_default = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
     target_for_form = st.session_state.get("target_column", target_default)
     if target_for_form not in data.columns:
@@ -240,6 +314,14 @@ with tab_predict:
                 st.info("Use this result as decision support, not as the sole basis for academic decisions.")
             st.subheader("Input summary")
             st.dataframe(one, use_container_width=True, hide_index=True)
+
+            st.subheader("📈 What could this student improve?")
+            st.caption("Suggestions are based on the values entered above. Choose a small, realistic action and review progress over time.")
+            guidance = get_student_guidance(input_values, target_for_form)
+            for title, detail in guidance:
+                st.markdown(f"**{title}**")
+                st.write(detail)
+            st.caption("These suggestions are general educational guidance. The model identifies patterns in data; it cannot prove that any single habit causes a particular score.")
 
 with tab_models:
     st.subheader("🧪 Train and evaluate")
