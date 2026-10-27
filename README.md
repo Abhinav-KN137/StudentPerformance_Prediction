@@ -54,7 +54,7 @@ This application is a learning prototype, not a validated educational decision s
 
 ## Student ID login setup
 
-The app includes student registration and login using a generated ID such as `STU-A1B2C3D4` plus a password. Accounts are managed by Supabase Authentication. **The login will not work on a fresh deployment until the app owner configures Supabase.**
+The app includes student registration and login using a generated ID such as `STU-A1B2C3D4E5F6` plus a password. Accounts are managed by Supabase Authentication. **The login will not work on a fresh deployment until the app owner configures Supabase.**
 
 1. Create a project at [Supabase](https://supabase.com/).
 2. In Supabase, open **Project Settings → API** and copy the Project URL and the **anon/public** key.
