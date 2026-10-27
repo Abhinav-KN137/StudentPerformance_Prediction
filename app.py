@@ -203,7 +203,81 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab_overview, tab_predict, tab_models, tab_data = st.tabs(["🏠 Overview", "✨ Make a prediction", "🧪 Train a model", "📁 Explore data"])
+tab_profile, tab_overview, tab_predict, tab_models, tab_data = st.tabs(["👤 Student profile", "🏠 Overview", "✨ Make a prediction", "🧪 Train a model", "📁 Explore data"])
+
+with tab_profile:
+    st.subheader("👤 Create your student profile")
+    st.write("Each student can create a profile in their own browser session, then use the prediction tools and review their prediction history.")
+    st.info("**Demo version:** profiles and prediction history are kept in this active Streamlit session only. They are not shared with other sessions, but they will be cleared if the session resets or the app restarts. This version does not use passwords or permanently store personal data.")
+    if "student_profile" not in st.session_state:
+        st.session_state["student_profile"] = None
+    if "student_prediction_history" not in st.session_state:
+        st.session_state["student_prediction_history"] = []
+
+    if st.session_state["student_profile"] is None:
+        with st.form("create_student_profile"):
+            profile_name = st.text_input("Your name or display name", max_chars=60, placeholder="e.g. Student 01")
+            profile_class = st.text_input("Class / course (optional)", max_chars=80, placeholder="e.g. B.Tech CSE, Semester 3")
+            profile_goal = st.text_input("Learning goal (optional)", max_chars=160, placeholder="e.g. Improve consistency in assignments")
+            profile_submitted = st.form_submit_button("Create my profile", type="primary", use_container_width=True)
+        if profile_submitted:
+            if not profile_name.strip():
+                st.error("Please enter a display name to create your profile.")
+            else:
+                st.session_state["student_profile"] = {
+                    "name": profile_name.strip(),
+                    "course": profile_class.strip(),
+                    "goal": profile_goal.strip()
+                }
+                st.session_state["student_prediction_history"] = []
+                st.success(f"Profile created for {profile_name.strip()}.")
+                st.rerun()
+    else:
+        profile = st.session_state["student_profile"]
+        st.markdown("### Welcome, " + profile["name"] + "!")
+        p1, p2 = st.columns(2)
+        p1.metric("Saved predictions", len(st.session_state["student_prediction_history"]))
+        p2.metric("Profile status", "Active")
+        if profile.get("course"):
+            st.write("**Class / course:** " + profile["course"])
+        if profile.get("goal"):
+            st.write("**Learning goal:** " + profile["goal"])
+        if st.button("Edit profile", key="edit_student_profile"):
+            st.session_state["edit_student_profile"] = True
+        if st.session_state.get("edit_student_profile", False):
+            with st.form("update_student_profile"):
+                updated_name = st.text_input("Display name", value=profile["name"], max_chars=60)
+                updated_course = st.text_input("Class / course", value=profile.get("course", ""), max_chars=80)
+                updated_goal = st.text_input("Learning goal", value=profile.get("goal", ""), max_chars=160)
+                save_profile = st.form_submit_button("Save changes", type="primary")
+            if save_profile:
+                if not updated_name.strip():
+                    st.error("Display name cannot be blank.")
+                else:
+                    st.session_state["student_profile"] = {
+                        "name": updated_name.strip(),
+                        "course": updated_course.strip(),
+                        "goal": updated_goal.strip()
+                    }
+                    st.session_state["edit_student_profile"] = False
+                    st.rerun()
+        st.divider()
+        st.subheader("My prediction history")
+        history = st.session_state["student_prediction_history"]
+        if history:
+            st.dataframe(pd.DataFrame(history).iloc[::-1], use_container_width=True, hide_index=True)
+            history_csv = pd.DataFrame(history).to_csv(index=False).encode("utf-8")
+            st.download_button("Download my prediction history", history_csv, file_name="my_prediction_history.csv", mime="text/csv")
+        else:
+            st.caption("No predictions saved yet. Go to Make a prediction after training a model.")
+        if st.button("Clear prediction history", key="clear_prediction_history"):
+            st.session_state["student_prediction_history"] = []
+            st.rerun()
+        if st.button("Remove this profile from this session", key="remove_student_profile"):
+            st.session_state["student_profile"] = None
+            st.session_state["student_prediction_history"] = []
+            st.session_state["edit_student_profile"] = False
+            st.rerun()
 
 with tab_overview:
     st.subheader("Your dataset at a glance")
@@ -322,6 +396,17 @@ with tab_predict:
                 st.markdown(f"**{title}**")
                 st.write(detail)
             st.caption("These suggestions are general educational guidance. The model identifies patterns in data; it cannot prove that any single habit causes a particular score.")
+            if st.session_state.get("student_profile"):
+                profile_name = st.session_state["student_profile"]["name"]
+                history_item = {
+                    "Student": profile_name,
+                    "Target": target_for_form,
+                    "Predicted outcome": str(round(float(prediction), 2)) if task == "Regression" else str(prediction),
+                    "Algorithm": st.session_state.get(f"model_name_{target_for_form}", "Unknown"),
+                    "Input details": "; ".join(f"{key}: {value}" for key, value in input_values.items())
+                }
+                st.session_state.setdefault("student_prediction_history", []).append(history_item)
+                st.success("This prediction has been added to your active-session profile history. Open Student profile to review or download it.")
 
 with tab_models:
     st.subheader("🧪 Train and evaluate")
