@@ -20,7 +20,12 @@ CUSTOM_CSS = """
 .hero h1 {color:white; margin:0; font-size:2.15rem;}
 .hero p {color:#d9edf4; margin:.45rem 0 0 0; font-size:1.03rem;}
 .small-muted {color:#64748b;font-size:.88rem;}
-div[data-testid="stMetric"] {background:#f8fafc; border:1px solid #e2e8f0; padding:14px; border-radius:14px;}
+div[data-testid="stMetric"] {background:linear-gradient(145deg,#ffffff,#f5f9fc); border:1px solid #dbe5ee; padding:16px; border-radius:16px; box-shadow:0 2px 8px rgba(15,42,67,.04);}
+div[data-testid="stTabs"] button {font-weight:600;}
+.result-card {padding:1.15rem 1.3rem; border:1px solid #cbdde8; border-radius:16px; background:linear-gradient(135deg,#f3f9fc,#ffffff); margin:.5rem 0 1rem 0;}
+.result-value {font-size:2rem; font-weight:750; color:#12344a; line-height:1.2;}
+.empty-card {padding:1.5rem; text-align:center; border:1px dashed #b8c9d6; border-radius:16px; background:#f8fbfd; color:#526579;}
+div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {border-radius:10px; font-weight:650;}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -75,7 +80,9 @@ def build_pipeline(X, task, model_name):
     if task == "Regression":
         model = ExtraTreesRegressor(n_estimators=180, random_state=42, min_samples_leaf=2) if model_name == "Extra Trees" else RandomForestRegressor(n_estimators=180, random_state=42, min_samples_leaf=2)
     else:
-        model = RandomForestClassifier(n_estimators=180, random_state=42, class_weight="balanced")
+        model = (ExtraTreesClassifier(n_estimators=250, random_state=42, class_weight="balanced", n_jobs=-1)
+                 if model_name == "Extra Trees" else
+                 RandomForestClassifier(n_estimators=250, random_state=42, class_weight="balanced", n_jobs=-1))
     return Pipeline([("preprocess", prep), ("model", model)])
 
 def infer_task(y):
@@ -148,10 +155,12 @@ with tab_predict:
     target_for_form = st.session_state.get("target_column", target_default)
     if target_for_form not in data.columns:
         target_for_form = target_default
-    feature_cols = [c for c in data.columns if c != target_for_form]
+    # Use exactly the features used for training, respecting excluded columns.
+    feature_cols = st.session_state.get(f"features_{target_for_form}", [c for c in data.columns if c != target_for_form])
+    feature_cols = [c for c in feature_cols if c in data.columns and c != target_for_form]
     model_key = f"trained_model_{target_for_form}"
     if model_key not in st.session_state:
-        st.info("Train a model in the **Model lab** tab to enable predictions.")
+        st.markdown('<div class="empty-card"><h3>🔮 Your prediction will appear here</h3><p>Train a model in <b>Model lab</b>, then return here to enter student details and generate a prediction.</p></div>', unsafe_allow_html=True)
     else:
         trained = st.session_state[model_key]
         input_values = {}
@@ -181,17 +190,25 @@ with tab_predict:
                     one[c] = one[c].astype(str)
             prediction = trained.predict(one)[0]
             task = st.session_state.get(f"task_{target_for_form}", infer_task(data[target_for_form].dropna()))
-            st.success("Prediction generated")
+            st.success("Prediction generated successfully")
             if task == "Regression":
                 score = float(prediction)
-                st.metric("Predicted score", f"{score:.1f}")
                 if score >= 80: category = "High performance"
                 elif score >= 60: category = "Moderate performance"
-                else: category = "Needs support"
-                st.info(f"Indicative category: **{category}**. This is an estimate, not a guaranteed outcome.")
+                else: category = "May benefit from support"
+                st.markdown(f'<div class="result-card"><div>Predicted outcome</div><div class="result-value">{score:.1f}</div><div>{category}</div></div>', unsafe_allow_html=True)
+                st.caption("This is a model estimate, not a guaranteed outcome or a substitute for educator judgment.")
             else:
-                st.metric("Predicted category", str(prediction))
-                st.info("Treat this result as decision support, not as the sole basis for academic decisions.")
+                st.markdown(f'<div class="result-card"><div>Predicted category</div><div class="result-value">{str(prediction)}</div></div>', unsafe_allow_html=True)
+                try:
+                    if hasattr(trained.named_steps["model"], "predict_proba"):
+                        probabilities = trained.predict_proba(one)[0]
+                        confidence = float(np.max(probabilities)) * 100
+                        st.progress(min(1.0, max(0.0, confidence / 100)))
+                        st.caption(f"Model confidence for this prediction: {confidence:.1f}% (probability estimate, not a guarantee).")
+                except Exception:
+                    pass
+                st.info("Use this result as decision support, not as the sole basis for academic decisions.")
             st.subheader("Input summary")
             st.dataframe(one, use_container_width=True, hide_index=True)
 
@@ -204,9 +221,11 @@ with tab_models:
     model_type = infer_task(data[target].dropna())
     task_choice = st.radio("Prediction task", ["Auto-detect", "Regression", "Classification"], horizontal=True, index=0)
     task = model_type if task_choice == "Auto-detect" else task_choice
-    model_name = st.selectbox("Model", ["Random Forest", "Extra Trees"] if task == "Regression" else ["Random Forest"])
+    model_name = st.selectbox("Model", ["Random Forest", "Extra Trees"])
     excluded = st.multiselect("Exclude columns from model inputs (recommended for IDs or leakage)", [c for c in data.columns if c != target])
-    test_size = st.slider("Test set (%)", 10, 35, 20, 5)
+    test_size = st.slider("Test set size (%)", 10, 50, 20, 5,
+                          help="Share of rows held out for evaluation, not the model's accuracy. It cannot be 100% because the model needs training data.")
+    st.caption("For a fair score, keep test data separate from model fitting. Classification uses accuracy/F1; regression uses MAE/RMSE/R².")
     train_clicked = st.button("🚀 Train model", type="primary")
     if train_clicked:
         clean = data.dropna(subset=[target]).copy()
@@ -255,13 +274,17 @@ with tab_models:
                 else:
                     acc = accuracy_score(y_test, pred)
                     f1 = f1_score(y_test, pred, average="weighted", zero_division=0)
-                    m1.metric("Accuracy", f"{acc:.3f}")
-                    m2.metric("Weighted F1", f"{f1:.3f}")
-                    m3.metric("Test records", len(y_test))
-                    labels = sorted(pd.Series(y_test).astype(str).unique().tolist())
-                    cm = confusion_matrix(y_test, pred, labels=labels)
+                    m1.metric("Test accuracy", f"{acc * 100:.1f}%")
+                    m2.metric("Weighted F1", f"{f1 * 100:.1f}%")
+                    correct = int((np.asarray(y_test).astype(str) == np.asarray(pred).astype(str)).sum())
+                    m3.metric("Correct predictions", f"{correct}/{len(y_test)}")
+                    labels = sorted(set(pd.Series(y_test).astype(str).tolist()) | set(pd.Series(pred).astype(str).tolist()))
+                    cm = confusion_matrix(pd.Series(y_test).astype(str), pd.Series(pred).astype(str), labels=labels)
                     fig = px.imshow(cm, x=labels, y=labels, text_auto=True, aspect="auto", title="Confusion matrix", labels={"x":"Predicted","y":"Actual","color":"Count"})
                     st.plotly_chart(fig, use_container_width=True)
+                    with st.expander("Per-class precision and recall"):
+                        report = classification_report(y_test, pred, output_dict=True, zero_division=0)
+                        st.dataframe(pd.DataFrame(report).transpose().round(3), use_container_width=True)
                 importance = feature_names_and_importances(pipe, features)
                 if not importance.empty:
                     st.subheader("Most influential model features")
