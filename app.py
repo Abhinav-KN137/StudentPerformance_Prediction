@@ -311,6 +311,10 @@ with st.sidebar:
     st.markdown("## 👤 Student account")
     st.write(f"**{authenticated_student_name}**")
     st.caption(f"Student ID: {authenticated_student_id}")
+    if st.session_state.get("new_student_id_to_show"):
+        st.success("Account created! Save your new Student ID:")
+        st.code(st.session_state["new_student_id_to_show"])
+        st.warning("Copy this ID somewhere safe. You need it with your password to log in again.")
     if st.button("Log out", key="student_logout", use_container_width=True):
         try:
             auth_client = get_supabase_client()
