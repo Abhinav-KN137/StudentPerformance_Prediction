@@ -75,7 +75,7 @@ def show_auth_gate():
         if login_clicked:
             normalized_id = student_id.strip().upper()
             if not re.fullmatch(r"STU-[A-F0-9]{12}", normalized_id):
-                st.error("Enter a valid Student ID in the format STU-XXXXXXXX.")
+                st.error("Enter a valid Student ID in the format STU-XXXXXXXXXXXX.")
             elif not password:
                 st.error("Enter your password.")
             else:
