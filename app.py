@@ -14,32 +14,33 @@ st.set_page_config(page_title="Student Success | Performance AI", page_icon="�
 
 CUSTOM_CSS = """
 <style>
-:root { --ink:#142d4e; --muted:#64748b; --line:#e2e8f0; --surface:#ffffff; --soft:#f5f8fc; }
+:root { color-scheme:dark; --ink:#e6edf7; --muted:#9aabc2; --line:#29384d; --surface:#172235; --soft:#111b2b; }
 .block-container {padding-top:1.35rem; padding-bottom:2.5rem; max-width:1380px;}
-[data-testid="stAppViewContainer"] {background:#f7f9fc;}
-[data-testid="stHeader"] {background:rgba(247,249,252,.88);}
-[data-testid="stSidebar"] {background:#f0f5fa; border-right:1px solid #e1e8f0;}
+[data-testid="stAppViewContainer"] {background:#0b1220; color:#e6edf7;}
+[data-testid="stHeader"] {background:rgba(11,18,32,.92);}
+[data-testid="stSidebar"] {background:#101a2a; border-right:1px solid #26364b;}
 [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,[data-testid="stSidebar"] h3 {color:var(--ink);}
 .hero {padding:1.65rem 1.8rem; border-radius:22px; background:linear-gradient(115deg,#102a43 0%,#155e75 60%,#2b7a78 100%); color:white; margin-bottom:1rem; box-shadow:0 10px 28px rgba(16,42,67,.12);}
 .hero h1 {color:white; margin:0; font-size:2.15rem; letter-spacing:-.035em;}
 .hero p {color:#e0f2f7; margin:.5rem 0 0 0; font-size:1rem;}
 .eyebrow {color:#a9e3e7; font-size:.76rem; font-weight:750; letter-spacing:.13em; text-transform:uppercase; margin-bottom:.45rem;}
-div[data-testid="stMetric"] {background:var(--surface); border:1px solid var(--line); padding:15px 16px; border-radius:16px; box-shadow:0 3px 12px rgba(20,45,78,.035);}
-div[data-testid="stMetricLabel"] {color:#64748b;}
+div[data-testid="stMetric"] {background:linear-gradient(145deg,#172438,#131e30); border:1px solid #293a50; padding:15px 16px; border-radius:16px; box-shadow:0 3px 12px rgba(20,45,78,.035);}
+div[data-testid="stMetricLabel"] {color:#a9bad0;}
 div[data-testid="stTabs"] button {font-weight:650; padding-top:.75rem; padding-bottom:.75rem;}
-div[data-testid="stTabs"] button[aria-selected="true"] {color:#0f766e; border-bottom-color:#0f766e;}
-.result-card {padding:1.25rem 1.4rem; border:1px solid #c8e0e5; border-radius:18px; background:linear-gradient(135deg,#edf8f8,#ffffff); margin:.65rem 0 1rem 0; box-shadow:0 5px 16px rgba(15,118,110,.06);}
-.result-value {font-size:2.15rem; font-weight:780; color:#12344a; line-height:1.25; margin:.2rem 0;}
-.empty-card {padding:1.6rem; text-align:center; border:1px dashed #b8c9d6; border-radius:18px; background:#fff; color:#526579;}
+div[data-testid="stTabs"] button[aria-selected="true"] {color:#67e8d4; border-bottom-color:#2dd4bf;}
+.result-card {padding:1.25rem 1.4rem; border:1px solid #c8e0e5; border-radius:18px; background:linear-gradient(135deg,#132e38,#142235); margin:.65rem 0 1rem 0; box-shadow:0 5px 16px rgba(15,118,110,.06);}
+.result-value {font-size:2.15rem; font-weight:780; color:#78f0d7; line-height:1.25; margin:.2rem 0;}
+.empty-card {padding:1.6rem; text-align:center; border:1px dashed #b8c9d6; border-radius:18px; background:#111c2c; color:#b5c4d8;}
 div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {border-radius:11px; font-weight:700; min-height:2.7rem;}
-[data-testid="stDataFrame"] {border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;}
-h1,h2,h3 {letter-spacing:-.02em; color:#18324f;}
-hr {border-color:#e2e8f0;}
+[data-testid="stDataFrame"] {border:1px solid #293a50; border-radius:12px; overflow:hidden;}
+h1,h2,h3 {letter-spacing:-.02em; color:#e6edf7;}
+hr {border-color:#29384d;}
 .small-muted {color:var(--muted); font-size:.88rem;}
 @media (max-width: 700px) {.hero {padding:1.2rem; border-radius:16px;} .hero h1 {font-size:1.7rem;}}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+px.defaults.template = "plotly_dark"
 
 @st.cache_data
 def make_demo_data(n=700, seed=42):
@@ -143,12 +144,17 @@ tab_overview, tab_predict, tab_models, tab_data = st.tabs(["🏠 Overview", "✨
 with tab_overview:
     st.subheader("Your dataset at a glance")
     st.caption("A quick health check before you train a model.")
-    c1, c2, c3, c4 = st.columns(4)
+    total_missing = int(data.isna().sum().sum())
+    rows_with_missing = int(data.isna().any(axis=1).sum())
+    columns_with_missing = int(data.isna().any(axis=0).sum())
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Student records", f"{len(data):,}")
-    c2.metric("Input columns", max(0, len(data.columns)-1))
-    c3.metric("Missing cells", f"{int(data.isna().sum().sum()):,}")
+    c2.metric("Total columns", f"{len(data.columns):,}")
+    c3.metric("Missing cells", f"{total_missing:,}", help="Total blank/NaN values in the dataset.")
+    c4.metric("Rows with missing data", f"{rows_with_missing:,}", help="Rows containing at least one missing value.")
+    c5.metric("Columns with missing data", f"{columns_with_missing:,}", help="Columns containing at least one missing value.")
     numeric_cols = data.select_dtypes(include="number").columns.tolist()
-    c4.metric("Numeric columns", len(numeric_cols))
+    st.caption(f"Dataset health: {len(data):,} rows × {len(data.columns):,} columns · {len(numeric_cols)} numeric · {max(0, len(data.columns) - len(numeric_cols))} non-numeric")
     left, right = st.columns([1.35, 1])
     with left:
         st.subheader("A look at your data")
@@ -159,8 +165,8 @@ with tab_overview:
         missing = data.isna().sum().sort_values(ascending=False).head(12).reset_index()
         missing.columns = ["Column", "Missing"]
         fig = px.bar(missing, x="Missing", y="Column", orientation="h", color="Missing",
-                     color_continuous_scale="Blues", title="Missing cell count")
-        fig.update_layout(height=350, coloraxis_showscale=False, yaxis={"categoryorder":"total ascending"})
+                     color_continuous_scale="Teal", title="Missing cells by column")
+        fig.update_layout(height=350, coloraxis_showscale=False, yaxis={"categoryorder":"total ascending"}, margin=dict(l=10,r=10,t=55,b=10))
         st.plotly_chart(fig, use_container_width=True)
     if numeric_cols:
         st.subheader("Explore a score or other numeric field")
