@@ -31,6 +31,13 @@ def student_login_email(student_id):
 
 def show_auth_gate():
     st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] {background:#0b1220;color:#e6edf7;}
+    [data-testid="stHeader"] {background:rgba(11,18,32,.92);}
+    .block-container {max-width:900px;padding-top:2rem;}
+    div[data-testid="stTabs"] button {font-weight:700;}
+    div.stFormSubmitButton > button[kind="primary"] {border-radius:11px;min-height:2.7rem;font-weight:700;}
+    </style>
     <div class="hero">
       <div class="eyebrow">Student analytics · secure sign in</div>
       <h1>🎓 Student Success</h1>
@@ -62,12 +69,12 @@ def show_auth_gate():
     with login_tab:
         st.subheader("Welcome back")
         with st.form("student_login_form"):
-            student_id = st.text_input("Unique Student ID", placeholder="e.g. STU-A1B2C3D4")
+            student_id = st.text_input("Unique Student ID", placeholder="e.g. STU-A1B2C3D4E5F6")
             password = st.text_input("Password", type="password")
             login_clicked = st.form_submit_button("Log in", type="primary", use_container_width=True)
         if login_clicked:
             normalized_id = student_id.strip().upper()
-            if not re.fullmatch(r"STU-[A-F0-9]{8}", normalized_id):
+            if not re.fullmatch(r"STU-[A-F0-9]{12}", normalized_id):
                 st.error("Enter a valid Student ID in the format STU-XXXXXXXX.")
             elif not password:
                 st.error("Enter your password.")
@@ -100,7 +107,7 @@ def show_auth_gate():
             elif new_password != confirm_password:
                 st.error("The passwords do not match.")
             else:
-                generated_id = "STU-" + secrets.token_hex(4).upper()
+                generated_id = "STU-" + secrets.token_hex(6).upper()
                 try:
                     result = client.auth.sign_up({
                         "email": student_login_email(generated_id),
