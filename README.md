@@ -51,3 +51,21 @@ When uploading a CSV:
 
 ## Academic integrity and limitations
 This application is a learning prototype, not a validated educational decision system. Predictions can be inaccurate or biased. Do not use predictions as the sole basis for grading, admission, discipline, or other consequential decisions. Model feature importance is associative, not proof of causation.
+
+## Student ID login setup
+
+The app includes student registration and login using a generated ID such as `STU-A1B2C3D4` plus a password. Accounts are managed by Supabase Authentication. **The login will not work on a fresh deployment until the app owner configures Supabase.**
+
+1. Create a project at [Supabase](https://supabase.com/).
+2. In Supabase, open **Project Settings → API** and copy the Project URL and the **anon/public** key.
+3. In Streamlit Community Cloud, open the app's **Settings → Secrets** and add:
+
+   ```toml
+   SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
+   SUPABASE_ANON_KEY = "YOUR-SUPABASE-ANON-KEY"
+   ```
+
+4. In Supabase Authentication settings, disable email confirmation for this prototype. It uses a generated internal `.invalid` address so students can log in with their ID without supplying an email address. Consequently, email-based password recovery is not available; for a real production system, use verified student email addresses and implement a recovery flow.
+5. Restart/redeploy the Streamlit app and test registration with a new account.
+
+Use only the Supabase **anon/public** key in Streamlit Secrets. Never expose a Supabase service-role key in client-facing code. Student profile metadata is stored with the Supabase Auth user. Prediction history currently remains in the active Streamlit session and is not yet saved permanently to a database.
