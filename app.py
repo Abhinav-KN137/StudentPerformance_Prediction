@@ -4,6 +4,7 @@ import plotly.express as px
 import streamlit as st
 import secrets
 import re
+from pathlib import Path
 from supabase import create_client
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, ExtraTreesRegressor, ExtraTreesClassifier
@@ -73,7 +74,7 @@ def show_auth_gate():
         with st.form("student_login_form"):
             student_id = st.text_input("Unique Student ID", placeholder="e.g. STU-A1B2C3D4E5F6")
             password = st.text_input("Password", type="password")
-            login_clicked = st.form_submit_button("Log in", type="primary", use_container_width=True)
+            login_clicked = st.form_submit_button("Log in", type="primary", width="stretch")
         if login_clicked:
             normalized_id = student_id.strip().upper()
             if not re.fullmatch(r"STU-[A-F0-9]{12}", normalized_id):
@@ -100,7 +101,7 @@ def show_auth_gate():
             goal = st.text_input("Learning goal (optional)", max_chars=160)
             new_password = st.text_input("Create password", type="password", help="Use at least 8 characters.")
             confirm_password = st.text_input("Confirm password", type="password")
-            register_clicked = st.form_submit_button("Create account", type="primary", use_container_width=True)
+            register_clicked = st.form_submit_button("Create account", type="primary", width="stretch")
         if register_clicked:
             if not full_name.strip():
                 st.error("Please enter your name.")
@@ -213,9 +214,32 @@ def make_demo_data(n=120, seed=42):
         demo.loc[missing_rows, col] = np.nan
     return demo
 
-def load_data(uploaded):
+SAMPLES = {
+    "Real student dataset (480 students)": "real",
+    "Synthetic demo (120 students)": "synthetic",
+}
+REAL_DATA_PATH = Path(__file__).with_name("data") / "student_academic_performance.csv"
+
+def load_sample(kind):
+    if kind == "real" and REAL_DATA_PATH.exists():
+        return pd.read_csv(REAL_DATA_PATH), "Student academic performance dataset (480 students)"
+    return make_demo_data(), "Built-in synthetic demo dataset"
+
+_SENSITIVE_EXACT = {"gender", "sex", "race"}
+_SENSITIVE_CONTAINS = ("nationality", "placeofbirth", "birthplace", "ethnic", "religion", "caste", "disability")
+
+def sensitive_columns(columns):
+    """Columns describing who a student is (gender, nationality...), not what they did."""
+    found = []
+    for c in columns:
+        n = re.sub(r"[^a-z0-9]", "", str(c).lower())
+        if n in _SENSITIVE_EXACT or any(token in n for token in _SENSITIVE_CONTAINS):
+            found.append(c)
+    return found
+
+def load_data(uploaded, sample_kind="real"):
     if uploaded is None:
-        return make_demo_data(), "Built-in demo dataset"
+        return load_sample(sample_kind)
     try:
         data = pd.read_csv(uploaded)
         if data.empty or len(data.columns) < 2:
@@ -325,7 +349,7 @@ with st.sidebar:
         st.success("Account created! Save your new Student ID:")
         st.code(st.session_state["new_student_id_to_show"])
         st.warning("Copy this ID somewhere safe. You need it with your password to log in again.")
-    if st.button("Log out", key="student_logout", use_container_width=True):
+    if st.button("Log out", key="student_logout", width="stretch"):
         try:
             auth_client = get_supabase_client()
             if auth_client is not None:
@@ -338,8 +362,12 @@ with st.sidebar:
         st.rerun()
     st.divider()
     st.markdown("## ⚙️ Workspace")
-    st.caption("Start with a compact 120-student sample, or upload your own CSV.")
-    st.caption("Sample fields: study hours, attendance, assignment completion, previous score, sleep, and final score.")
+    sample_label = st.radio("Built-in sample dataset", list(SAMPLES), help="Used when no CSV is uploaded.")
+    sample_kind = SAMPLES[sample_label]
+    if sample_kind == "real":
+        st.caption("480 real student records: behaviour in class (raised hands, resources visited, discussions, absences) and a Low / Medium / High performance class.")
+    else:
+        st.caption("120 synthetic students: study hours, attendance, assignment completion, previous score, sleep and final score. Made from a formula, so scores on it prove nothing.")
     uploaded = st.file_uploader("Choose a student dataset", type=["csv"], help="Each row should represent one student or assessment.")
     st.divider()
     st.markdown("#### Quick guide")
@@ -349,7 +377,8 @@ with st.sidebar:
     st.divider()
     st.caption("🔒 Privacy tip: avoid uploading names, IDs, or sensitive student records to a public app.")
 
-data, source_name = load_data(uploaded)
+data, source_name = load_data(uploaded, sample_kind)
+dataset_key = f"upload_{uploaded.name}" if uploaded is not None else sample_kind
 st.markdown(f"""
 <div style="display:flex;flex-wrap:wrap;gap:.55rem;align-items:center;margin:.4rem 0 1.1rem 0">
 <span style="background:#e6f4f1;color:#17685f;border-radius:999px;padding:.32rem .7rem;font-size:.82rem;font-weight:650">● Data loaded</span>
@@ -375,7 +404,7 @@ with tab_profile:
         st.session_state["student_prediction_history"] = []
     history = st.session_state["student_prediction_history"]
     if history:
-        st.dataframe(pd.DataFrame(history).iloc[::-1], use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(history).iloc[::-1], width="stretch", hide_index=True)
         history_csv = pd.DataFrame(history).to_csv(index=False).encode("utf-8")
         st.download_button("Download my prediction history", history_csv, file_name="my_prediction_history.csv", mime="text/csv")
     else:
@@ -386,7 +415,7 @@ with tab_profile:
 
 with tab_overview:
     st.subheader("Your dataset at a glance")
-    st.caption("A quick health check before you train a model. The built-in sample has 120 synthetic student records and 6 easy-to-read columns.")
+    st.caption("A quick health check before you train a model. Choose a built-in sample or upload your own CSV from the sidebar.")
     total_missing = int(data.isna().sum().sum())
     rows_with_missing = int(data.isna().any(axis=1).sum())
     columns_with_missing = int(data.isna().any(axis=0).sum())
@@ -410,7 +439,7 @@ with tab_overview:
     left, right = st.columns([1.35, 1])
     with left:
         st.subheader("A look at your data")
-        st.dataframe(data.head(12), use_container_width=True, hide_index=True)
+        st.dataframe(data.head(12), width="stretch", hide_index=True)
     with right:
         st.subheader("Data completeness")
         st.caption("Columns with the most blank cells")
@@ -419,112 +448,36 @@ with tab_overview:
         fig = px.bar(missing, x="Missing", y="Column", orientation="h", color="Missing",
                      color_continuous_scale="Teal", title="Missing cells by column")
         fig.update_layout(height=350, coloraxis_showscale=False, yaxis={"categoryorder":"total ascending"}, margin=dict(l=10,r=10,t=55,b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     if numeric_cols:
         st.subheader("Explore a score or other numeric field")
         st.caption("Choose a column to see its distribution.")
         chosen = st.selectbox("Select column", numeric_cols, key="overview_numeric")
         fig = px.histogram(data, x=chosen, nbins=25, marginal="box", title=f"Distribution of {chosen}")
         fig.update_layout(height=360)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
-with tab_predict:
-    st.subheader("✨ Make a prediction")
-    st.write("Enter a student's details to estimate the selected outcome.")
-    st.caption("First train a model in **Train a model**. Your prediction is an estimate, not a guarantee.")
-    st.info("**How to use this section:** enter realistic student details, select **Predict performance**, then read the improvement suggestions below the result. Suggestions are general study ideas—not promises that a score will rise.")
-    target_default = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
-    target_for_form = st.session_state.get("target_column", target_default)
-    if target_for_form not in data.columns:
-        target_for_form = target_default
-    # Use exactly the features used for training, respecting excluded columns.
-    feature_cols = st.session_state.get(f"features_{target_for_form}", [c for c in data.columns if c != target_for_form])
-    feature_cols = [c for c in feature_cols if c in data.columns and c != target_for_form]
-    model_key = f"trained_model_{target_for_form}"
-    if model_key not in st.session_state:
-        st.markdown('<div class="empty-card"><h3>🔮 Your prediction will appear here</h3><p>Train a model in <b>Model lab</b>, then return here to enter student details and generate a prediction.</p></div>', unsafe_allow_html=True)
-    else:
-        trained = st.session_state[model_key]
-        input_values = {}
-        with st.form("prediction_form"):
-            cols = st.columns(2)
-            for idx, col in enumerate(feature_cols):
-                series = data[col]
-                with cols[idx % 2]:
-                    if pd.api.types.is_numeric_dtype(series):
-                        median = float(series.median()) if series.notna().any() else 0.0
-                        minv = float(series.min()) if series.notna().any() else 0.0
-                        maxv = float(series.max()) if series.notna().any() else 100.0
-                        if minv == maxv:
-                            input_values[col] = st.number_input(col.replace("_", " ").title(), value=median)
-                        else:
-                            input_values[col] = st.number_input(col.replace("_", " ").title(), min_value=minv, max_value=maxv, value=float(np.clip(median, minv, maxv)))
-                    else:
-                        options = series.dropna().astype(str).value_counts().index.tolist()
-                        if not options:
-                            options = ["Unknown"]
-                        input_values[col] = st.selectbox(col.replace("_", " ").title(), options)
-            submitted = st.form_submit_button("Predict performance", type="primary", use_container_width=True)
-        if submitted:
-            one = pd.DataFrame([{c: input_values[c] for c in feature_cols}])
-            for c in one.columns:
-                if c in data.columns and not pd.api.types.is_numeric_dtype(data[c]):
-                    one[c] = one[c].astype(str)
-            prediction = trained.predict(one)[0]
-            task = st.session_state.get(f"task_{target_for_form}", infer_task(data[target_for_form].dropna()))
-            st.success("Prediction generated successfully")
-            if task == "Regression":
-                score = float(prediction)
-                if score >= 80: category = "High performance"
-                elif score >= 60: category = "Moderate performance"
-                else: category = "May benefit from support"
-                st.markdown(f'<div class="result-card"><div>Predicted outcome</div><div class="result-value">{score:.1f}</div><div>{category}</div></div>', unsafe_allow_html=True)
-                st.caption("This is a model estimate, not a guaranteed outcome or a substitute for educator judgment.")
-            else:
-                st.markdown(f'<div class="result-card"><div>Predicted category</div><div class="result-value">{str(prediction)}</div></div>', unsafe_allow_html=True)
-                try:
-                    if hasattr(trained.named_steps["model"], "predict_proba"):
-                        probabilities = trained.predict_proba(one)[0]
-                        confidence = float(np.max(probabilities)) * 100
-                        st.progress(min(1.0, max(0.0, confidence / 100)))
-                        st.caption(f"Model confidence for this prediction: {confidence:.1f}% (probability estimate, not a guarantee).")
-                except Exception:
-                    pass
-                st.info("Use this result as decision support, not as the sole basis for academic decisions.")
-            st.subheader("Input summary")
-            st.dataframe(one, use_container_width=True, hide_index=True)
-
-            st.subheader("📈 What could this student improve?")
-            st.caption("Suggestions are based on the values entered above. Choose a small, realistic action and review progress over time.")
-            guidance = get_student_guidance(input_values, target_for_form)
-            for title, detail in guidance:
-                st.markdown(f"**{title}**")
-                st.write(detail)
-            st.caption("These suggestions are general educational guidance. The model identifies patterns in data; it cannot prove that any single habit causes a particular score.")
-            if st.session_state.get("student_profile"):
-                history_item = {
-                    "Student ID": authenticated_student_id,
-                    "Student": authenticated_student_name,
-                    "Target": target_for_form,
-                    "Predicted outcome": str(round(float(prediction), 2)) if task == "Regression" else str(prediction),
-                    "Algorithm": st.session_state.get(f"model_name_{target_for_form}", "Unknown"),
-                    "Input details": "; ".join(f"{key}: {value}" for key, value in input_values.items())
-                }
-                st.session_state.setdefault("student_prediction_history", []).append(history_item)
-                st.success("This prediction has been added to your active-session profile history. Open Student profile to review or download it.")
-
+# The Train tab runs first so a model trained in this run is already available to the Predict tab
+# (tab order on screen is set by st.tabs above and does not change).
 with tab_models:
     st.subheader("🧪 Train and evaluate")
     st.write("Tell the model what you want to predict, choose the inputs, then train and review its results.")
     st.caption("Tip: choose a final score or result column as the target, and exclude IDs or columns that reveal the answer.")
     suggested = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
-    target = st.selectbox("Target column to predict", data.columns.tolist(), index=data.columns.tolist().index(suggested), key="target_select")
+    target = st.selectbox("Target column to predict", data.columns.tolist(), index=data.columns.tolist().index(suggested), key=f"target_select_{dataset_key}")
     st.session_state["target_column"] = target
     model_type = infer_task(data[target].dropna())
     task_choice = st.radio("Prediction task", ["Auto-detect", "Regression", "Classification"], horizontal=True, index=0)
     task = model_type if task_choice == "Auto-detect" else task_choice
     model_name = st.selectbox("Algorithm", ["Random Forest", "Extra Trees"], help="Both are tree-based models; compare their evaluation metrics.")
-    excluded = st.multiselect("Ignore columns (optional)", [c for c in data.columns if c != target], help="Exclude IDs, names, or columns that would leak the answer.")
+    default_excluded = [c for c in sensitive_columns(data.columns) if c != target]
+    excluded = st.multiselect("Ignore columns (optional)", [c for c in data.columns if c != target],
+                              default=default_excluded, key=f"exclude_{dataset_key}_{target}",
+                              help="Exclude IDs, names, or columns that would leak the answer. Sensitive columns (gender, nationality, place of birth...) are ignored by default.")
+    included_sensitive = [c for c in sensitive_columns(data.columns) if c != target and c not in excluded]
+    if included_sensitive:
+        st.warning("Sensitive columns are included in the model: " + ", ".join(f"**{c}**" for c in included_sensitive)
+                   + ". Predictions may then reflect who a student is rather than what they did.")
     test_size = st.slider("Test set size (%)", 10, 50, 20, 5,
                           help="Share of rows held out for evaluation, not the model's accuracy. It cannot be 100% because the model needs training data.")
     st.caption("For a fair score, keep test data separate from model fitting. Classification uses accuracy/F1; regression uses MAE/RMSE/R².")
@@ -572,7 +525,7 @@ with tab_models:
                     low = min(compare.min())
                     high = max(compare.max())
                     fig.add_shape(type="line", x0=low, y0=low, x1=high, y1=high, line={"dash":"dash"})
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 else:
                     acc = accuracy_score(y_test, pred)
                     f1 = f1_score(y_test, pred, average="weighted", zero_division=0)
@@ -583,27 +536,112 @@ with tab_models:
                     labels = sorted(set(pd.Series(y_test).astype(str).tolist()) | set(pd.Series(pred).astype(str).tolist()))
                     cm = confusion_matrix(pd.Series(y_test).astype(str), pd.Series(pred).astype(str), labels=labels)
                     fig = px.imshow(cm, x=labels, y=labels, text_auto=True, aspect="auto", title="Confusion matrix", labels={"x":"Predicted","y":"Actual","color":"Count"})
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                     with st.expander("Per-class precision and recall"):
                         report = classification_report(y_test, pred, output_dict=True, zero_division=0)
-                        st.dataframe(pd.DataFrame(report).transpose().round(3), use_container_width=True)
+                        st.dataframe(pd.DataFrame(report).transpose().round(3), width="stretch")
                 importance = feature_names_and_importances(pipe, features)
                 if not importance.empty:
                     st.subheader("Most influential model features")
                     fig = px.bar(importance.sort_values("Importance"), x="Importance", y="Feature", orientation="h", title="Feature importance (not causal evidence)")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 st.caption("Metrics depend on the dataset, target definition, and test split. They are not a guarantee of real-world performance.")
             except Exception as exc:
                 st.error(f"Training failed: {exc}")
                 st.info("Check for mixed target types, too few examples per class, or columns containing unusual values.")
 
+with tab_predict:
+    st.subheader("✨ Make a prediction")
+    st.write("Enter a student's details to estimate the selected outcome.")
+    st.caption("First train a model in **Train a model**. Your prediction is an estimate, not a guarantee.")
+    st.info("**How to use this section:** enter realistic student details, select **Predict performance**, then read the improvement suggestions below the result. Suggestions are general study ideas—not promises that a score will rise.")
+    target_default = "final_score" if "final_score" in data.columns else ("G3" if "G3" in data.columns else data.columns[-1])
+    target_for_form = st.session_state.get("target_column", target_default)
+    if target_for_form not in data.columns:
+        target_for_form = target_default
+    # Use exactly the features used for training, respecting excluded columns.
+    feature_cols = st.session_state.get(f"features_{target_for_form}", [c for c in data.columns if c != target_for_form])
+    feature_cols = [c for c in feature_cols if c in data.columns and c != target_for_form]
+    model_key = f"trained_model_{target_for_form}"
+    if model_key not in st.session_state:
+        st.markdown('<div class="empty-card"><h3>🔮 Your prediction will appear here</h3><p>Train a model in <b>Model lab</b>, then return here to enter student details and generate a prediction.</p></div>', unsafe_allow_html=True)
+    else:
+        trained = st.session_state[model_key]
+        input_values = {}
+        with st.form("prediction_form"):
+            cols = st.columns(2)
+            for idx, col in enumerate(feature_cols):
+                series = data[col]
+                with cols[idx % 2]:
+                    if pd.api.types.is_numeric_dtype(series):
+                        median = float(series.median()) if series.notna().any() else 0.0
+                        minv = float(series.min()) if series.notna().any() else 0.0
+                        maxv = float(series.max()) if series.notna().any() else 100.0
+                        if minv == maxv:
+                            input_values[col] = st.number_input(col.replace("_", " ").title(), value=median)
+                        else:
+                            input_values[col] = st.number_input(col.replace("_", " ").title(), min_value=minv, max_value=maxv, value=float(np.clip(median, minv, maxv)))
+                    else:
+                        options = series.dropna().astype(str).value_counts().index.tolist()
+                        if not options:
+                            options = ["Unknown"]
+                        input_values[col] = st.selectbox(col.replace("_", " ").title(), options)
+            submitted = st.form_submit_button("Predict performance", type="primary", width="stretch")
+        if submitted:
+            one = pd.DataFrame([{c: input_values[c] for c in feature_cols}])
+            for c in one.columns:
+                if c in data.columns and not pd.api.types.is_numeric_dtype(data[c]):
+                    one[c] = one[c].astype(str)
+            prediction = trained.predict(one)[0]
+            task = st.session_state.get(f"task_{target_for_form}", infer_task(data[target_for_form].dropna()))
+            st.success("Prediction generated successfully")
+            if task == "Regression":
+                score = float(prediction)
+                if score >= 80: category = "High performance"
+                elif score >= 60: category = "Moderate performance"
+                else: category = "May benefit from support"
+                st.markdown(f'<div class="result-card"><div>Predicted outcome</div><div class="result-value">{score:.1f}</div><div>{category}</div></div>', unsafe_allow_html=True)
+                st.caption("This is a model estimate, not a guaranteed outcome or a substitute for educator judgment.")
+            else:
+                st.markdown(f'<div class="result-card"><div>Predicted category</div><div class="result-value">{str(prediction)}</div></div>', unsafe_allow_html=True)
+                try:
+                    if hasattr(trained.named_steps["model"], "predict_proba"):
+                        probabilities = trained.predict_proba(one)[0]
+                        confidence = float(np.max(probabilities)) * 100
+                        st.progress(min(1.0, max(0.0, confidence / 100)))
+                        st.caption(f"Model confidence for this prediction: {confidence:.1f}% (probability estimate, not a guarantee).")
+                except Exception:
+                    pass
+                st.info("Use this result as decision support, not as the sole basis for academic decisions.")
+            st.subheader("Input summary")
+            st.dataframe(one, width="stretch", hide_index=True)
+
+            st.subheader("📈 What could this student improve?")
+            st.caption("Suggestions are based on the values entered above. Choose a small, realistic action and review progress over time.")
+            guidance = get_student_guidance(input_values, target_for_form)
+            for title, detail in guidance:
+                st.markdown(f"**{title}**")
+                st.write(detail)
+            st.caption("These suggestions are general educational guidance. The model identifies patterns in data; it cannot prove that any single habit causes a particular score.")
+            if authenticated_student_id:
+                history_item = {
+                    "Student ID": authenticated_student_id,
+                    "Student": authenticated_student_name,
+                    "Target": target_for_form,
+                    "Predicted outcome": str(round(float(prediction), 2)) if task == "Regression" else str(prediction),
+                    "Algorithm": st.session_state.get(f"model_name_{target_for_form}", "Unknown"),
+                    "Input details": "; ".join(f"{key}: {value}" for key, value in input_values.items())
+                }
+                st.session_state.setdefault("student_prediction_history", []).append(history_item)
+                st.success("This prediction has been added to your active-session profile history. Open My profile to review or download it.")
+
 with tab_data:
     st.subheader("📁 Explore your dataset")
     st.write("Review column types, missing values, and summary statistics before training.")
     schema = pd.DataFrame({"Column": data.columns, "Type": [str(t) for t in data.dtypes], "Missing": [int(data[c].isna().sum()) for c in data.columns], "Unique values": [int(data[c].nunique(dropna=True)) for c in data.columns]})
-    st.dataframe(schema, use_container_width=True, hide_index=True)
+    st.dataframe(schema, width="stretch", hide_index=True)
     with st.expander("Summary statistics"):
-        st.dataframe(data.describe(include="all").transpose(), use_container_width=True)
+        st.dataframe(data.describe(include="all").transpose(), width="stretch")
     csv = data.to_csv(index=False).encode("utf-8")
     st.download_button("Download current dataset as CSV", csv, file_name="student_dataset.csv", mime="text/csv")
-    st.caption("The built-in dataset is synthetic and exists for demonstration only. Replace it with an appropriately licensed, documented dataset for academic evaluation.")
+    st.caption("Built-in samples are for demonstration. Check the source and licence of any dataset before publishing results.")

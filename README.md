@@ -5,7 +5,9 @@ A Streamlit + Scikit-learn mini project for exploring student data, training a m
 ## Features
 - Dashboard and dataset inspection
 - CSV upload for custom datasets
-- Synthetic demo data so the app starts without a dataset file
+- Two built-in samples: a real 480-student dataset (`data/student_academic_performance.csv`) and a 120-row synthetic demo
+- Sensitive columns (gender, nationality, place of birth...) are ignored by default, with a warning if you add them back
+- Student ID login with a profile page and a per-session prediction history you can download
 - Regression or classification target selection
 - Random Forest / Extra Trees training
 - Holdout evaluation (MAE, RMSE, R² or accuracy, weighted F1, confusion matrix)
@@ -39,7 +41,9 @@ Then open the local URL shown in the terminal (usually http://localhost:8501).
 Account authorization is performed by you in GitHub/Streamlit; never share your password or tokens in chat.
 
 ## Dataset notes
-The app uses a synthetic dataset if no CSV is uploaded. Synthetic data is for demonstration, not evidence of real predictive performance. For a real project, use a documented dataset that you are permitted to use, describe its source, clean it, and discuss limitations.
+If no CSV is uploaded the app uses the built-in sample chosen in the sidebar. The synthetic sample is generated from a formula, so scores on it are for demonstration only and are not evidence of real predictive performance.
+
+The real sample is the "Students' Academic Performance" dataset (xAPI-Edu-Data; Amrieh, Hamtini & Aljarah, 2016), 480 students with a Low / Medium / High `Class` label. Confirm its licence and terms of use before redistributing the repository or publishing results. For a real project, use a documented dataset that you are permitted to use, describe its source, clean it, and discuss limitations.
 
 When uploading a CSV:
 - Each row should represent a student or student assessment.
@@ -65,7 +69,7 @@ The app includes student registration and login using a generated ID such as `ST
    SUPABASE_ANON_KEY = "YOUR-SUPABASE-ANON-KEY"
    ```
 
-4. In Supabase Authentication settings, disable email confirmation for this prototype. It uses a generated internal `.invalid` address so students can log in with their ID without supplying an email address. Consequently, email-based password recovery is not available; for a real production system, use verified student email addresses and implement a recovery flow.
+4. In Supabase Authentication settings, disable email confirmation for this prototype. It uses a generated internal `@example.com` address (a reserved example domain, not a real inbox) so students can log in with their ID without supplying an email address. Consequently, email-based password recovery is not available; for a real production system, use verified student email addresses and implement a recovery flow.
 5. Restart/redeploy the Streamlit app and test registration with a new account.
 
-Use only the Supabase **anon/public** key in Streamlit Secrets. Never expose a Supabase service-role key in client-facing code. Student profile metadata is stored with the Supabase Auth user. Prediction history currently remains in the active Streamlit session and is not yet saved permanently to a database.
+Use only the Supabase **anon/public** key in Streamlit Secrets. Never expose a Supabase service-role key in client-facing code. Student profile metadata is stored with the Supabase Auth user. Prediction history is kept in the active Streamlit session (visible and downloadable from **My profile**) and is not yet saved permanently to a database, so it resets when the session ends.
